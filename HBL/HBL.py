@@ -229,7 +229,7 @@ if __name__ == "__main__":
         writer.add_scalar("Loss/train", loss, i)
         writer.add_scalar("Accuracy/train", acc, i)
 
-        if i != 0 and (i % 10 == 0 or i == args.epochs - 1):
+        if i != 0 and (i % 1 == 0 or i == args.epochs - 1):
             test_acc, test_loss, auroc = main_test(model, testloader, testloader_os, f_loss, train_classes, train_classes_map, c=curvature)
             print("test_acc:", test_acc, "\ttest_loss:", test_loss, "\tAUROC:", auroc)
 
