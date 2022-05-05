@@ -5,6 +5,7 @@ import os
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
+import torch.backends.cudnn as cudnn
 
 from helper import pmath
 from helper.helper import get_optimizer, load_dataset
@@ -77,7 +78,7 @@ def main_test(model, testloader, testloader_os, initialized_loss, train_classes,
             scores = output_exp_map.norm(dim=-1, p=2, keepdim=True)
             for score in scores:
                 osr_scores.append(score.item())
-                osr_true_labels.append(0)
+                osr_true_labels.append(1)
 
             output = model.predict(output_exp_map).float()
             pred = output.max(1, keepdim=True)[1]   # todo shoud map to selected class?
@@ -101,7 +102,7 @@ def main_test(model, testloader, testloader_os, initialized_loss, train_classes,
             scores_os = output_exp_map.norm(dim=-1, p=2, keepdim=True)
             for score_os in scores_os:
                 osr_scores.append(score_os.item())
-                osr_true_labels.append(1)
+                osr_true_labels.append(0)
 
     return avg_acc, avg_loss, roc_auc_score(osr_true_labels, osr_scores)
 
@@ -144,7 +145,8 @@ if __name__ == "__main__":
     args = parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     device = torch.device("cuda")
-    kwargs = {'num_workers': 32, 'pin_memory': True}
+    kwargs = {'num_workers': 2, 'pin_memory': True}
+    cudnn.benchmark = True
 
     do_decay = args.do_decay
     curvature = args.curv
