@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 import torch.utils.data as data
+from torch.utils.data import Subset
 from torchvision import datasets, transforms
 
 
@@ -45,11 +46,11 @@ def get_optimizer(optimname, params, learning_rate, momentum, decay):
 ################################################################################
 # Standard dataset loaders.
 ################################################################################
-def load_dataset(dataset_name, basedir, batch_size, kwargs):
+def load_dataset(dataset_name, basedir, batch_size, kwargs, cls_subset=None):
     if dataset_name == 'cifar100':
         return load_cifar100(basedir, batch_size, kwargs)
     elif dataset_name == 'cifar10':
-        return load_cifar10(basedir, batch_size, kwargs)
+        return load_cifar10(basedir, batch_size, kwargs, cls_subset)
     elif dataset_name == 'cub':
         return load_cub(basedir, batch_size, kwargs)
     else:
@@ -92,36 +93,67 @@ def load_cifar100(basedir, batch_size, kwargs):
 
 
 # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-def load_cifar10(basedir, batch_size, kwargs):
+def load_cifar10(basedir, batch_size, kwargs, cls_subset):
     # Input channels normalization.
     mrgb = [0.507, 0.487, 0.441]
     srgb = [0.267, 0.256, 0.276]
     normalize = transforms.Normalize(mean=mrgb, std=srgb)
 
+    trainset = datasets.CIFAR10(root=basedir + 'cifar10/', train=True,
+                     transform=transforms.Compose([
+                         transforms.RandomCrop(32, 4),
+                         transforms.RandomHorizontalFlip(),
+                         transforms.ToTensor(),
+                         normalize,
+                     ]), download=True)
+
+    if cls_subset is not None:
+        targets = torch.tensor(trainset.targets)
+        mask = targets == cls_subset[0]
+        for i in range(1, len(cls_subset)):
+            mask |= targets == cls_subset[i]
+        indices = mask.nonzero().reshape(-1)
+        trainset = Subset(trainset, indices)
+
     # Load train data.
     trainloader = torch.utils.data.DataLoader(
-        datasets.CIFAR10(root=basedir + 'cifar10/', train=True,
-                         transform=transforms.Compose([
-                             transforms.RandomCrop(32, 4),
-                             transforms.RandomHorizontalFlip(),
-                             transforms.ToTensor(),
-                             normalize,
-                         ]), download=True),
+        trainset,
         batch_size=batch_size, shuffle=True, **kwargs)
 
     # Labels to torch.
     trainloader.dataset.train_labels = torch.from_numpy(np.array(trainloader.dataset.targets))
 
     # Load test data.
+    testset = datasets.CIFAR10(root=basedir + 'cifar10/', train=False,
+                     transform=transforms.Compose([
+                         transforms.ToTensor(),
+                         normalize,
+                     ]))
+
+    if cls_subset is not None:
+        targets = torch.tensor(testset.targets)
+        mask = targets == cls_subset[0]
+        for i in range(1, len(cls_subset)):
+            mask |= targets == cls_subset[i]
+        mask_os = 1 - mask  # todo is ok?
+        indices = mask.nonzero().reshape(-1)
+        indices_os = mask_os.nonzero().reshape(-1)
+        testset_os = Subset(testset, indices_os)
+        testset = Subset(testset, indices)
+
     testloader = torch.utils.data.DataLoader(
-        datasets.CIFAR10(root=basedir + 'cifar10/', train=False,
-                         transform=transforms.Compose([
-                             transforms.ToTensor(),
-                             normalize,
-                         ])),
+        testset,
         batch_size=batch_size, shuffle=True, **kwargs)
     # Labels to torch.
     testloader.dataset.test_labels = torch.from_numpy(np.array(testloader.dataset.targets))
+
+    if cls_subset is not None:
+        testloader_os = torch.utils.data.DataLoader(
+            testset_os,
+            batch_size=batch_size, shuffle=True, **kwargs)
+        # Labels to torch.
+        testloader_os.dataset.test_labels = torch.from_numpy(np.array(testloader_os.dataset.targets))
+        return trainloader, testloader, testloader_os
 
     return trainloader, testloader
 

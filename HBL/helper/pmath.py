@@ -33,7 +33,7 @@ def expmap0(u, *, c=1.0, t=1.0):
 def _expmap0(u, c, t=1.0):
     sqrt_c = c ** 0.5
     u_norm = torch.clamp_min(u.norm(dim=-1, p=2, keepdim=True), 1e-5)
-    gamma_1 = tanh(sqrt_c * u_norm * t) * u / (sqrt_c * u_norm)
+    gamma_1 = tanh(sqrt_c * u_norm * t) * u / (sqrt_c * u_norm)     # todo is this correct? according to paper, there must be division by 2 in tanh
     return gamma_1
 
 

@@ -6,15 +6,16 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from helper import pmath
-from helper.helper import get_optimizer, load_dataset
-from helper.hyperbolicLoss import PeBusePenalty
-from models.cifar import resnet as resnet_cifar
-from models.cifar import densenet as densenet_cifar
-from models.cub import resnet as resnet_cub
+from HBL.helper import pmath
+from HBL.helper.helper import get_optimizer, load_dataset
+from HBL.helper.hyperbolicLoss import PeBusePenalty
+from HBL.models.cifar import resnet as resnet_cifar
+from HBL.models.cifar import densenet as densenet_cifar
+from HBL.models.cub import resnet as resnet_cub
 
+from sklearn.metrics import roc_auc_score
 
-def main_train(model, trainloader, optimizer, initialized_loss, c=1.0):
+def main_train(model, trainloader, optimizer, initialized_loss, train_classes_map, c=1.0):
     # Set mode to training.
     model.train()
     avgloss, avglosscount, newloss, acc, newacc = 0., 0., 0., 0., 0.
@@ -24,7 +25,7 @@ def main_train(model, trainloader, optimizer, initialized_loss, c=1.0):
         # Data to device.
         target_tmp = target.cuda()
 
-        target = model.polars[target]
+        target = model.polars[target.apply_(lambda x: train_classes_map[x])]
         data = torch.autograd.Variable(data).cuda()
         target = torch.autograd.Variable(target).cuda()
         # Compute outputs and losses.
@@ -53,12 +54,14 @@ def main_train(model, trainloader, optimizer, initialized_loss, c=1.0):
     return newacc, newloss
 
 
-def main_test(model, testloader, initialized_loss, c=1.0):
+def main_test(model, testloader, testloader_os, initialized_loss, train_classes, train_classes_map, c=1.0):
     # Set model to evaluation and initialize accuracy and cosine similarity.
     model.eval()
     acc = 0
     loss = 0
 
+    osr_true_labels = []
+    osr_scores = []
     # Go over all batches.
     with torch.no_grad():
         for data, target in testloader:
@@ -66,11 +69,15 @@ def main_test(model, testloader, initialized_loss, c=1.0):
             data = torch.autograd.Variable(data).cuda()
             target = target.cuda(non_blocking=True)
             target = torch.autograd.Variable(target)
-            target_loss = model.polars[target]
+            target_loss = model.polars[target.apply_(lambda x: train_classes_map[x])]
 
             # Forward.
             output = model(data).float()
             output_exp_map = pmath.expmap0(output, c=c)
+            scores = output_exp_map.norm(dim=-1, p=2, keepdim=True)
+            for score in scores:
+                osr_scores.append(score)
+                osr_true_labels.append(0)
 
             output = model.predict(output_exp_map).float()
             pred = output.max(1, keepdim=True)[1]
@@ -84,7 +91,19 @@ def main_test(model, testloader, initialized_loss, c=1.0):
     avg_acc = acc / float(testlen)
     avg_loss = loss / float(testlen)
 
-    return avg_acc, avg_loss
+    # open-set
+    with torch.no_grad():
+        for data, target in testloader_os:
+            data = torch.autograd.Variable(data).cuda()
+            # Forward.
+            output = model(data).float()
+            output_exp_map = pmath.expmap0(output, c=c)
+            scores_os = output_exp_map.norm(dim=-1, p=2, keepdim=True)
+            for score_os in scores_os:
+                osr_scores.append(score_os)
+                osr_true_labels.append(1)
+
+    return avg_acc, avg_loss, roc_auc_score(osr_true_labels, osr_scores)
 
 
 def parse_args():
@@ -141,9 +160,12 @@ if __name__ == "__main__":
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
 
+    train_classes = [0, 1, 2, 3, 4, 5]  # todo parametrize
+    train_classes_map = {train_classes[i]: i for i in range(len(train_classes))}
+
     # Load data.
     batch_size = args.batch_size
-    trainloader, testloader = load_dataset(args.data_name, args.datadir, batch_size, kwargs)
+    trainloader, testloader, testloader_os = load_dataset(args.data_name, args.datadir, batch_size, kwargs, train_classes)
 
     if not os.path.exists(args.resdir):
         os.makedirs(args.resdir)
@@ -200,19 +222,22 @@ if __name__ == "__main__":
                 param_group['lr'] = learning_rate
 
         # Train and test.
-        acc, loss = main_train(model, trainloader, optimizer, f_loss, c=curvature)
+        acc, loss = main_train(model, trainloader, optimizer, f_loss, train_classes_map, c=curvature)
+        print("train_acc:", acc, "\ttrain_loss:", loss)
 
         # add the train loss to the tensorboard writer
         writer.add_scalar("Loss/train", loss, i)
         writer.add_scalar("Accuracy/train", acc, i)
 
         if i != 0 and (i % 10 == 0 or i == args.epochs - 1):
-            test_acc, test_loss = main_test(model, testloader, f_loss, c=curvature)
+            test_acc, test_loss, auroc = main_test(model, testloader, testloader_os, f_loss, train_classes, train_classes_map, c=curvature)
+            print("test_acc:", test_acc, "\ttest_loss:", test_loss, "\tAUROC:", auroc)
 
             testscores.append([i, test_acc])
 
             writer.add_scalar("Loss/test", test_loss, i)
             writer.add_scalar("Accuracy/test", test_acc, i)
+            writer.add_scalar("AUROC/test", auroc, i)
 
     writer.flush()
     writer.close()
