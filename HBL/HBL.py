@@ -6,12 +6,12 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from HBL.helper import pmath
-from HBL.helper.helper import get_optimizer, load_dataset
-from HBL.helper.hyperbolicLoss import PeBusePenalty
-from HBL.models.cifar import resnet as resnet_cifar
-from HBL.models.cifar import densenet as densenet_cifar
-from HBL.models.cub import resnet as resnet_cub
+from helper import pmath
+from helper.helper import get_optimizer, load_dataset
+from helper.hyperbolicLoss import PeBusePenalty
+from models.cifar import resnet as resnet_cifar
+from models.cifar import densenet as densenet_cifar
+from models.cub import resnet as resnet_cub
 
 from sklearn.metrics import roc_auc_score
 
@@ -44,7 +44,7 @@ def main_train(model, trainloader, optimizer, initialized_loss, train_classes_ma
         newloss = avgloss / avglosscount
 
         output = model.predict(output_exp_map).float()
-        pred = output.max(1, keepdim=True)[1]
+        pred = output.max(1, keepdim=True)[1]       # todo shoud map to selected class?
         acc += pred.eq(target_tmp.view_as(pred)).sum().item()
 
     trainlen = len(trainloader.dataset)
@@ -69,18 +69,18 @@ def main_test(model, testloader, testloader_os, initialized_loss, train_classes,
             data = torch.autograd.Variable(data).cuda()
             target = target.cuda(non_blocking=True)
             target = torch.autograd.Variable(target)
-            target_loss = model.polars[target.apply_(lambda x: train_classes_map[x])]
+            target_loss = model.polars[target.cpu().apply_(lambda x: train_classes_map[x])]
 
             # Forward.
             output = model(data).float()
             output_exp_map = pmath.expmap0(output, c=c)
             scores = output_exp_map.norm(dim=-1, p=2, keepdim=True)
             for score in scores:
-                osr_scores.append(score)
+                osr_scores.append(score.item())
                 osr_true_labels.append(0)
 
             output = model.predict(output_exp_map).float()
-            pred = output.max(1, keepdim=True)[1]
+            pred = output.max(1, keepdim=True)[1]   # todo shoud map to selected class?
             acc += pred.eq(target.view_as(pred)).sum().item()
 
             loss += initialized_loss(output_exp_map, target_loss.cuda())
@@ -100,7 +100,7 @@ def main_test(model, testloader, testloader_os, initialized_loss, train_classes,
             output_exp_map = pmath.expmap0(output, c=c)
             scores_os = output_exp_map.norm(dim=-1, p=2, keepdim=True)
             for score_os in scores_os:
-                osr_scores.append(score_os)
+                osr_scores.append(score_os.item())
                 osr_true_labels.append(1)
 
     return avg_acc, avg_loss, roc_auc_score(osr_true_labels, osr_scores)

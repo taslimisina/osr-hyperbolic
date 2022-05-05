@@ -121,7 +121,7 @@ def load_cifar10(basedir, batch_size, kwargs, cls_subset):
         batch_size=batch_size, shuffle=True, **kwargs)
 
     # Labels to torch.
-    trainloader.dataset.train_labels = torch.from_numpy(np.array(trainloader.dataset.targets))
+    # trainloader.dataset.train_labels = torch.from_numpy(np.array(trainloader.dataset.targets))
 
     # Load test data.
     testset = datasets.CIFAR10(root=basedir + 'cifar10/', train=False,
@@ -135,7 +135,7 @@ def load_cifar10(basedir, batch_size, kwargs, cls_subset):
         mask = targets == cls_subset[0]
         for i in range(1, len(cls_subset)):
             mask |= targets == cls_subset[i]
-        mask_os = 1 - mask  # todo is ok?
+        mask_os = ~mask
         indices = mask.nonzero().reshape(-1)
         indices_os = mask_os.nonzero().reshape(-1)
         testset_os = Subset(testset, indices_os)
@@ -145,14 +145,14 @@ def load_cifar10(basedir, batch_size, kwargs, cls_subset):
         testset,
         batch_size=batch_size, shuffle=True, **kwargs)
     # Labels to torch.
-    testloader.dataset.test_labels = torch.from_numpy(np.array(testloader.dataset.targets))
+    # testloader.dataset.test_labels = torch.from_numpy(np.array(testloader.dataset.targets))
 
     if cls_subset is not None:
         testloader_os = torch.utils.data.DataLoader(
             testset_os,
             batch_size=batch_size, shuffle=True, **kwargs)
         # Labels to torch.
-        testloader_os.dataset.test_labels = torch.from_numpy(np.array(testloader_os.dataset.targets))
+        # testloader_os.dataset.test_labels = torch.from_numpy(np.array(testloader_os.dataset.targets))
         return trainloader, testloader, testloader_os
 
     return trainloader, testloader
